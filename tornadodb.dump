@@ -1,0 +1,6 @@
+/usr/bin/pg_dump: line 19: use: command not found
+/usr/bin/pg_dump: line 20: use: command not found
+/usr/bin/pg_dump: line 21: use: command not found
+/usr/bin/pg_dump: line 22: use: command not found
+/usr/bin/pg_dump: pg_dump: line 24: syntax error near unexpected token `$version,'
+/usr/bin/pg_dump: pg_dump: line 24: `my ($version, $cluster);'
