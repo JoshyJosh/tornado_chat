@@ -24,6 +24,8 @@ import uuid
 import psycopg2
 import psycopg2.extras
 
+import logging
+
 from tornado.options import define, options, parse_command_line
 
 define("port", default=8888, help="run on the given port", type=int)
@@ -41,9 +43,15 @@ class MessageBuffer(object):
         # cond is notified whenever the message cache is updated
         self.cond = tornado.locks.Condition()
         self.cache = []
-#     dbname="tornadodb", user="tornadouser", password="tornadopass", port="5432")
-# cur = conn.cursor()
+
         self.cache_size = 200
+        csize = str(self.cache_size)
+        cur.execute("SELECT id, message, created_at FROM {} ORDER BY created_at ASC LIMIT {};".format("message_log", csize))
+        messages = cur.fetchall()
+        self.messages = []
+        for message in messages:
+            msg_obj = {'id': str(message[0]), 'body': message[1], 'html': "<div class=\"message\" id=\"{}\">{}</div>\n".format(str(message[0]), message[1])}
+            self.cache.append(msg_obj)
 
     def get_messages_since(self, cursor):
         """Returns a list of messages newer than the given cursor.
@@ -56,6 +64,7 @@ class MessageBuffer(object):
                 break
             results.append(msg)
         results.reverse()
+
         return results
 
     def add_message(self, message):
@@ -90,16 +99,12 @@ class MessageNewHandler(tornado.web.RequestHandler):
         else:
             self.write(message)
         global_message_buffer.add_message(message)
-        # cur.execute("INSERT INTO message_log (id, message) VALUES (%s, %s)",(str(msgUuid), message["body"]))
 
         table_name = 'message_log'
 
         insert_query = "INSERT INTO {} (id, message) VALUES (%s, %s)".format(table_name)
         cur.execute(insert_query, (uuid.uuid4(), message["body"]))
         conn.commit()
-
-        cur.execute("SELECT * FROM message_log")
-        print(cur.fetchall())
 
 
 class MessageUpdatesHandler(tornado.web.RequestHandler):
@@ -109,6 +114,11 @@ class MessageUpdatesHandler(tornado.web.RequestHandler):
 
     async def post(self):
         cursor = self.get_argument("cursor", None)
+
+        logging.info("{}post{}".format("#"*10, "#"*10))
+        logging.info(cursor)
+        logging.info("{}post{}".format("#"*10, "#"*10))
+
         messages = global_message_buffer.get_messages_since(cursor)
         while not messages:
             # Save the Future returned here so we can cancel it in
@@ -145,7 +155,8 @@ def main():
         template_path=os.path.join(os.path.dirname(__file__), "templates"),
         static_path=os.path.join(os.path.dirname(__file__), "static"),
         xsrf_cookies=True,
-        debug=options.debug,
+        #debug=options.debug,
+        debug=True,
         )
     app.listen(options.port)
     tornado.ioloop.IOLoop.current().start()
