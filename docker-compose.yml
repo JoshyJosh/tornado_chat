@@ -3,9 +3,9 @@ version: '3'
 services:
 
   tornapp:
-    build: ./app/
+    build: ./apptmp/
     # command: python3 /home/tornado/chat/chatdemo
-    command: python3 ./chat/chatdemo.py > /var/log/tornado/flask.log
+    command: python3 ./chatdemo.py
     # command: ls
     volumes:
       - ./app:/app

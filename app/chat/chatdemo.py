@@ -31,11 +31,11 @@ from tornado.options import define, options, parse_command_line
 define("port", default=8888, help="run on the given port", type=int)
 define("debug", default=True, help="run in debug mode")
 
+psycopg2.extras.register_uuid()
+
 conn = psycopg2.connect(
     dbname="tornadodb", user="tornadouser", password="tornadopass", host="db", port="5432")
 cur = conn.cursor()
-
-psycopg2.extras.register_uuid()
 
 
 class MessageBuffer(object):
