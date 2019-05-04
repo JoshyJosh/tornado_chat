@@ -36,21 +36,26 @@ from tornado.options import define, options
 
 define("port", default=8888, help="run on the given port", type=int)
 
-define("db_host", default="db", help="chat database host")
+# define("db_host", default="db", help="chat database host")
+define("db_host", default="localhost", help="chat database host")
 define("db_port", default=5432, help="chat database port")
 define("db_database", default="tornadodb", help="chat database name")
 define("db_user", default="tornadouser", help="chat database user")
 define("db_password", default="tornadopass", help="chat database password")
 
-chat = None
-cur = None
 
 async def test_query(db):
+    init_cache = []
     with (await db.cursor()) as cur:
-        await cur.execute("SELECT * FROM message_log")
-        foo = await cur.fetchall()
-        logging.info("made it to testquery result: %s", foo)
-        print(foo)
+        await cur.execute("SELECT id, message, created_at FROM message_log ORDER BY created_at DESC LIMIT 200")
+        initial_cache = await cur.fetchall()
+        # logging.info(initial_cache)
+        # # import pdb; pdb.set_trace()
+        for chat_msg in initial_cache:
+            chat = {"id": chat_msg[0], "body": chat_msg[1]}
+            init_cache.append(chat)
+    logging.info(init_cache)
+    return init_cache
 
 class Application(tornado.web.Application):
     def __init__(self, db):
@@ -60,6 +65,8 @@ class Application(tornado.web.Application):
         #
         # psycopg2.extras.register_uuid()
         self.db = db
+        # tornado.ioloop.IOLoop.current().spawn_callback(test_query, self.db)add_callback
+
 
         handlers = [(r"/", MainHandler), (r"/chatsocket", ChatSocketHandler)]
         settings = dict(
@@ -72,6 +79,36 @@ class Application(tornado.web.Application):
 
 
 class MainHandler(tornado.web.RequestHandler):
+    called_cache = False
+
+    def initialize(self):
+        logging.info("initing MainHandler")
+        if self.__class__.called_cache == False:
+            self.init_cache = []
+            tornado.ioloop.IOLoop.current().spawn_callback(self.test_query)
+            tornado.ioloop.IOLoop.current().time(100)
+            logging.info("in initialize post test_query")
+            logging.info(self.init_cache)
+            # for cache_msg in db_cache:
+            #     cache_msg["html"] = self.render_string("message.html", message=cache_msg)
+            # ChatSocketHandler.initialize_cache(db_cache)
+            self.__class__.called_cache = True
+        super(MainHandler, self).initialize()
+
+    async def test_query(self):
+        with (await self.application.db.cursor()) as cur:
+            await cur.execute("SELECT id, message, created_at FROM message_log ORDER BY created_at DESC LIMIT 200")
+            initial_cache = await cur.fetchall()
+            # logging.info(initial_cache)
+            for chat_msg in initial_cache:
+                logging.info(chat_msg[0])
+                self.init_cache.append(chat_msg[0])
+                # chat = {"id": chat_msg[0], "body": chat_msg[1]}
+                # chat["html"] = self.render_string("message.html", message=chat)
+                # self.init_cache.append(chat)
+        # ChatSocketHandler.initialize_cache(init_cache)
+        return
+
     def get(self):
         self.render("index.html", messages=ChatSocketHandler.cache)
 
@@ -81,22 +118,50 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
     cache = []
     cache_size = 200
 
-    def __init__(self, *args, **kwargs):
-        logging.info("Initializing waiters")
-        logging.info(self.cache)
-        super(ChatSocketHandler, self).__init__(*args, **kwargs)
+    def initialize(self):
+        logging.info("running initialize")
+        super(ChatSocketHandler, self).initialize()
+
+    # async def testing_query(self):
+    #     logging.info("in test query")
+    #     with (await self.application.db.cursor()) as cur:
+    #         await cur.execute("SELECT id, message, created_at FROM message_log ORDER BY created_at DESC LIMIT 200")
+    #         initial_cache = await cur.fetchall()
+    #         # logging.info(initial_cache)
+    #         # import pdb; pdb.set_trace()
+    #         full_cache = []
+    #         for chat_msg in initial_cache:
+    #             chat = {"id": chat_msg[0], "body": chat_msg[1]}
+    #             chat["html"] = tornado.escape.to_basestring(
+    #                 self.render_string("message.html", message=chat)
+    #             )
+    #             full_cache.append(chat)
+    #         print(full_cache)
 
     def get_compression_options(self):
         # Non-None enables compression with default options.
         return {}
 
-    def open(self):
+    async def open(self):
         logging.info("Opening waiters")
+        # foo = []
+        # for chat_msg in init_cache:
+        #     chat_msg["html"] = tornado.escape.to_basestring(
+        #         self.render_string("message.html", message=chat_msg)
+        #     )
+        #     foo.append(chat_msg)
+        # ChatSocketHandler.initialize_cache(foo)
+        # if len(self.cache) < 1:
+        #     await self.testing_query()
         ChatSocketHandler.waiters.add(self)
 
     def on_close(self):
         logging.info("Closing waiters")
         ChatSocketHandler.waiters.remove(self)
+
+    @classmethod
+    def initialize_cache(cls, chat_log):
+        cls.cache = chat_log
 
     @classmethod
     def update_cache(cls, chat):
@@ -121,9 +186,11 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
         chat["html"] = tornado.escape.to_basestring(
             self.render_string("message.html", message=chat)
         )
+        logging.info(chat)
 
         ChatSocketHandler.update_cache(chat)
         ChatSocketHandler.send_updates(chat)
+        logging.info(self.cache)
 
 
 async def main():
@@ -137,13 +204,8 @@ async def main():
         password=options.db_password,
         dbname=options.db_database,
     ) as db:
-        await test_query(db)
-
-
         app = Application(db)
         app.listen(options.port)
-        await test_query(db)
-        # tornado.ioloop.IOLoop.current().start()
 
         # In this demo the server will simply run until interrupted
         # with Ctrl-C, but if you want to shut down more gracefully,
