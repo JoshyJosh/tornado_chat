@@ -43,32 +43,14 @@ define("db_database", default="tornadodb", help="chat database name")
 define("db_user", default="tornadouser", help="chat database user")
 define("db_password", default="tornadopass", help="chat database password")
 
-
-async def test_query(db):
-    init_cache = []
-    with (await db.cursor()) as cur:
-        await cur.execute("SELECT id, message, created_at FROM message_log ORDER BY created_at DESC LIMIT 200")
-        initial_cache = await cur.fetchall()
-        # logging.info(initial_cache)
-        # # import pdb; pdb.set_trace()
-        for chat_msg in initial_cache:
-            chat = {"id": chat_msg[0], "body": chat_msg[1]}
-            init_cache.append(chat)
-    logging.info(init_cache)
-    return init_cache
+INIT_CHAT = []
 
 class Application(tornado.web.Application):
-    def __init__(self, db):
-        # conn = psycopg2.connect(
-        #     dbname="tornadodb", user="tornadouser", password="tornadopass", host="db", port="5432")
-        # cur = conn.cursor()
-        #
-        # psycopg2.extras.register_uuid()
+    def __init__(self, db, init_chat):
         self.db = db
-        # tornado.ioloop.IOLoop.current().spawn_callback(test_query, self.db)add_callback
+        self.init_chat = init_chat
 
-
-        handlers = [(r"/", MainHandler), (r"/chatsocket", ChatSocketHandler)]
+        handlers = [(r"/", MainHandler, dict(init_chat=self.init_chat)), (r"/chatsocket", ChatSocketHandler)]
         settings = dict(
             cookie_secret="__TODO:_GENERATE_YOUR_OWN_RANDOM_VALUE_HERE__",
             template_path=os.path.join(os.path.dirname(__file__), "templates"),
@@ -81,33 +63,21 @@ class Application(tornado.web.Application):
 class MainHandler(tornado.web.RequestHandler):
     called_cache = False
 
-    def initialize(self):
-        logging.info("initing MainHandler")
+    def initialize(self, init_chat):
+        logging.info("initializing MainHandler")
+        logging.info(init_chat)
+        logging.info(self.called_cache)
         if self.__class__.called_cache == False:
-            self.init_cache = []
-            tornado.ioloop.IOLoop.current().spawn_callback(self.test_query)
-            tornado.ioloop.IOLoop.current().time(100)
-            logging.info("in initialize post test_query")
-            logging.info(self.init_cache)
-            # for cache_msg in db_cache:
-            #     cache_msg["html"] = self.render_string("message.html", message=cache_msg)
-            # ChatSocketHandler.initialize_cache(db_cache)
+            db_cache = []
+            for chat_msg in init_chat:
+                cache_msg = {"id": chat_msg[0], "body": chat_msg[1]}
+                cache_msg["html"] = self.render_string("message.html", message=cache_msg)
+                db_cache.append(cache_msg)
+            ChatSocketHandler.initialize_cache(db_cache)
+            INIT_CHAT = []
+            self.application.init_chat = []
             self.__class__.called_cache = True
         super(MainHandler, self).initialize()
-
-    async def test_query(self):
-        with (await self.application.db.cursor()) as cur:
-            await cur.execute("SELECT id, message, created_at FROM message_log ORDER BY created_at DESC LIMIT 200")
-            initial_cache = await cur.fetchall()
-            # logging.info(initial_cache)
-            for chat_msg in initial_cache:
-                logging.info(chat_msg[0])
-                self.init_cache.append(chat_msg[0])
-                # chat = {"id": chat_msg[0], "body": chat_msg[1]}
-                # chat["html"] = self.render_string("message.html", message=chat)
-                # self.init_cache.append(chat)
-        # ChatSocketHandler.initialize_cache(init_cache)
-        return
 
     def get(self):
         self.render("index.html", messages=ChatSocketHandler.cache)
@@ -122,37 +92,12 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
         logging.info("running initialize")
         super(ChatSocketHandler, self).initialize()
 
-    # async def testing_query(self):
-    #     logging.info("in test query")
-    #     with (await self.application.db.cursor()) as cur:
-    #         await cur.execute("SELECT id, message, created_at FROM message_log ORDER BY created_at DESC LIMIT 200")
-    #         initial_cache = await cur.fetchall()
-    #         # logging.info(initial_cache)
-    #         # import pdb; pdb.set_trace()
-    #         full_cache = []
-    #         for chat_msg in initial_cache:
-    #             chat = {"id": chat_msg[0], "body": chat_msg[1]}
-    #             chat["html"] = tornado.escape.to_basestring(
-    #                 self.render_string("message.html", message=chat)
-    #             )
-    #             full_cache.append(chat)
-    #         print(full_cache)
-
     def get_compression_options(self):
         # Non-None enables compression with default options.
         return {}
 
     async def open(self):
         logging.info("Opening waiters")
-        # foo = []
-        # for chat_msg in init_cache:
-        #     chat_msg["html"] = tornado.escape.to_basestring(
-        #         self.render_string("message.html", message=chat_msg)
-        #     )
-        #     foo.append(chat_msg)
-        # ChatSocketHandler.initialize_cache(foo)
-        # if len(self.cache) < 1:
-        #     await self.testing_query()
         ChatSocketHandler.waiters.add(self)
 
     def on_close(self):
@@ -161,6 +106,7 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
 
     @classmethod
     def initialize_cache(cls, chat_log):
+        logging.info("initializing cache")
         cls.cache = chat_log
 
     @classmethod
@@ -196,6 +142,16 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
 async def main():
     tornado.options.parse_command_line()
 
+    # get data from db before starting loop
+    conn = psycopg2.connect("host={} port={} user={} password={} dbname={}".format(options.db_host, options.db_port, options.db_user, options.db_password, options.db_database))
+    cur = conn.cursor()
+
+    cur.execute("SELECT id, message, created_at FROM message_log ORDER BY created_at DESC LIMIT 200")
+    INIT_CHAT = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
     # Create the global connection pool.
     async with aiopg.create_pool(
         host=options.db_host,
@@ -204,7 +160,7 @@ async def main():
         password=options.db_password,
         dbname=options.db_database,
     ) as db:
-        app = Application(db)
+        app = Application(db, INIT_CHAT)
         app.listen(options.port)
 
         # In this demo the server will simply run until interrupted
