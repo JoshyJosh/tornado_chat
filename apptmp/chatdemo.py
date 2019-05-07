@@ -48,9 +48,9 @@ INIT_CHAT = []
 class Application(tornado.web.Application):
     def __init__(self, db, init_chat):
         self.db = db
-        self.init_chat = init_chat
+        MainHandler.initialize_cache(init_chat)
 
-        handlers = [(r"/", MainHandler, dict(init_chat=self.init_chat)), (r"/chatsocket", ChatSocketHandler)]
+        handlers = [(r"/", MainHandler), (r"/chatsocket", ChatSocketHandler)]
         settings = dict(
             cookie_secret="__TODO:_GENERATE_YOUR_OWN_RANDOM_VALUE_HERE__",
             template_path=os.path.join(os.path.dirname(__file__), "templates"),
@@ -62,22 +62,28 @@ class Application(tornado.web.Application):
 
 class MainHandler(tornado.web.RequestHandler):
     called_cache = False
+    initial_cache = []
 
-    def initialize(self, init_chat):
+    def initialize(self):
         logging.info("initializing MainHandler")
-        logging.info(init_chat)
         logging.info(self.called_cache)
         if self.__class__.called_cache == False:
             db_cache = []
-            for chat_msg in init_chat:
+            for chat_msg in self.__class__.initial_cache:
                 cache_msg = {"id": chat_msg[0], "body": chat_msg[1]}
                 cache_msg["html"] = self.render_string("message.html", message=cache_msg)
                 db_cache.append(cache_msg)
             ChatSocketHandler.initialize_cache(db_cache)
+
+            # clear chat variables since they wont be reused
             INIT_CHAT = []
-            self.application.init_chat = []
+            self.__class__.init_chat = []
             self.__class__.called_cache = True
         super(MainHandler, self).initialize()
+
+    @classmethod
+    def initialize_cache(cls, init_chat):
+        cls.initial_cache = init_chat
 
     def get(self):
         self.render("index.html", messages=ChatSocketHandler.cache)
