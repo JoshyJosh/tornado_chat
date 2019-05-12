@@ -2,11 +2,27 @@ version: '3'
 
 services:
 
-  tornapp:
-    build: ./apptmp/
-    # command: python3 /home/tornado/chat/chatdemo
+  # ajax version
+  # tornappajax:
+  #   build: ./appajax/
+  #   command: python3 ./chatdemo.py
+  #   volumes:
+  #     - ./app:/app
+  #     - ./logs:/tmp/flask
+  #   ports:
+  #    - 8888:8888
+  #   depends_on:
+  #    - db
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "20m"
+  #       max-file: "10"
+
+  # socket version
+  tornappsocket:
+    build: ./appsocket/
     command: python3 ./chatdemo.py
-    # command: ls
     volumes:
       - ./app:/app
       - ./logs:/tmp/flask

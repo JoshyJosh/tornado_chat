@@ -36,8 +36,9 @@ from tornado.options import define, options
 
 define("port", default=8888, help="run on the given port", type=int)
 
-# define("db_host", default="db", help="chat database host")
-define("db_host", default="localhost", help="chat database host")
+# for docker use db if running locally use localhost
+define("db_host", default="db", help="chat database host")
+# define("db_host", default="localhost", help="chat database host")
 define("db_port", default=5432, help="chat database port")
 define("db_database", default="tornadodb", help="chat database name")
 define("db_user", default="tornadouser", help="chat database user")
