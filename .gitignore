@@ -1,3 +1,5 @@
 postgres-data/
 tmp/
 venv/
+Pipfile
+Pipfile.lock
