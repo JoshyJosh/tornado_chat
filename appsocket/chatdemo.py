@@ -38,7 +38,6 @@ define("port", default=8888, help="run on the given port", type=int)
 
 # for docker use db if running locally use localhost
 define("db_host", default="db", help="chat database host")
-# define("db_host", default="localhost", help="chat database host")
 define("db_port", default=5432, help="chat database port")
 define("db_database", default="tornadodb", help="chat database name")
 define("db_user", default="tornadouser", help="chat database user")
@@ -94,6 +93,7 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
     waiters = set()
     cache = []
     cache_size = 200
+    message_table = "message_log"
 
     def initialize(self):
         logging.info("running initialize")
@@ -110,6 +110,11 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
     def on_close(self):
         logging.info("Closing waiters")
         ChatSocketHandler.waiters.remove(self)
+
+    async def query(self, query_str):
+        rows = []
+        with (await self.application.db.cursor()) as cur:
+            await cur.execute(query_str)
 
     @classmethod
     def initialize_cache(cls, chat_log):
@@ -132,7 +137,7 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
             except:
                 logging.error("Error sending message", exc_info=True)
 
-    def on_message(self, message):
+    async def on_message(self, message):
         logging.info("got message %r", message)
         parsed = tornado.escape.json_decode(message)
         chat = {"id": str(uuid.uuid4()), "body": parsed["body"]}
@@ -141,9 +146,14 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
         )
         logging.info(chat)
 
+        insert_q = "INSERT INTO {} (id, message) VALUES ('{}', '{}');".format(self.message_table, chat["id"], chat["body"])
+        logging.debug(insert_q)
+
+        await self.query(insert_q)
+
         ChatSocketHandler.update_cache(chat)
         ChatSocketHandler.send_updates(chat)
-        logging.info(self.cache)
+        logging.debug(self.cache)
 
 
 async def main():
@@ -153,8 +163,9 @@ async def main():
     conn = psycopg2.connect("host={} port={} user={} password={} dbname={}".format(options.db_host, options.db_port, options.db_user, options.db_password, options.db_database))
     cur = conn.cursor()
 
-    cur.execute("SELECT id, message, created_at FROM message_log ORDER BY created_at DESC LIMIT 200")
+    cur.execute("SELECT id, message, created_at FROM message_log ORDER BY created_at DESC LIMIT 200;")
     INIT_CHAT = cur.fetchall()
+    INIT_CHAT.reverse()
 
     cur.close()
     conn.close()
@@ -166,6 +177,7 @@ async def main():
         user=options.db_user,
         password=options.db_password,
         dbname=options.db_database,
+        enable_uuid=True,
     ) as db:
         app = Application(db, INIT_CHAT)
         app.listen(options.port)
